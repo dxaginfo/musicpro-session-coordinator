@@ -1,0 +1,266 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for all users (musicians, producers, band managers)
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  password        String
+  firstName       String
+  lastName        String
+  phone           String?
+  avatar          String?   // URL to profile image
+  bio             String?   @db.Text
+  role            UserRole  @default(MUSICIAN)
+  isVerified      Boolean   @default(false)
+  website         String?
+  socialLinks     Json?     // JSON object with social media links
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Musician specific fields
+  musicianProfile MusicianProfile?
+  
+  // Project relationships
+  createdProjects Project[]  @relation("ProjectCreator")
+  joinedProjects  ProjectMember[]
+  
+  // Session relationships
+  sessions        Session[]
+  sessionMusicians SessionMusician[]
+  
+  // Message relationships
+  sentMessages    Message[]  @relation("MessageSender")
+  receivedMessages Message[] @relation("MessageReceiver")
+  messageThreadParticipants MessageThreadParticipant[]
+  
+  // File relationships
+  uploadedFiles   File[]
+  
+  // Review relationships
+  givenReviews    Review[]   @relation("ReviewGiver")
+  receivedReviews Review[]   @relation("ReviewReceiver")
+}
+
+enum UserRole {
+  MUSICIAN
+  PRODUCER
+  BAND_MANAGER
+  ADMIN
+}
+
+// Musician profile (extends User for musicians)
+model MusicianProfile {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instruments      String[] // Array of instruments played
+  genres           String[] // Music genres
+  experienceYears  Int?
+  ratePerHour      Decimal? @db.Decimal(10, 2)
+  availability     Json?    // JSON object with availability schedule
+  locationCity     String?
+  locationState    String?
+  locationCountry  String?
+  canTravel        Boolean  @default(false)
+  travelDistance   Int?     // Distance in km willing to travel
+  portfolioLinks   Json?    // JSON object with portfolio links (SoundCloud, etc.)
+  certifications   String[] // Music certifications/education
+  equipmentInfo    String?  @db.Text
+}
+
+// Project model for recording sessions, tours, etc.
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?   @db.Text
+  type        ProjectType
+  status      ProjectStatus @default(PLANNING)
+  startDate   DateTime?
+  endDate     DateTime?
+  budget      Decimal?  @db.Decimal(10, 2)
+  location    String?
+  creatorId   String
+  creator     User      @relation("ProjectCreator", fields: [creatorId], references: [id])
+  isPublic    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relationships
+  members     ProjectMember[]
+  sessions    Session[]
+  files       File[]
+  messageThread MessageThread?
+}
+
+enum ProjectType {
+  RECORDING_SESSION
+  LIVE_PERFORMANCE
+  TOUR
+  MUSIC_VIDEO
+  OTHER
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// Project members (relationship between Users and Projects)
+model ProjectMember {
+  id          String        @id @default(uuid())
+  projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        ProjectRole
+  joinedAt    DateTime      @default(now())
+  status      MemberStatus  @default(PENDING)
+
+  @@unique([projectId, userId])
+}
+
+enum ProjectRole {
+  PRODUCER
+  MUSICIAN
+  ENGINEER
+  ASSISTANT
+  OTHER
+}
+
+enum MemberStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REMOVED
+}
+
+// Session model for individual recording/rehearsal sessions
+model Session {
+  id          String        @id @default(uuid())
+  title       String
+  description String?       @db.Text
+  projectId   String?
+  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  startTime   DateTime
+  endTime     DateTime
+  location    String?
+  status      SessionStatus @default(SCHEDULED)
+  notes       String?       @db.Text
+  createdById String
+  createdBy   User          @relation(fields: [createdById], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relationships
+  musicians   SessionMusician[]
+  files       File[]
+}
+
+enum SessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+// Session musicians (relationship between Users and Sessions)
+model SessionMusician {
+  id              String    @id @default(uuid())
+  sessionId       String
+  session         Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  musicianId      String
+  musician        User      @relation(fields: [musicianId], references: [id], onDelete: Cascade)
+  instruments     String[]  // Instruments to be played in this session
+  status          MemberStatus @default(PENDING)
+  rate            Decimal?  @db.Decimal(10, 2)
+  notes           String?   @db.Text
+  addedAt         DateTime  @default(now())
+
+  @@unique([sessionId, musicianId])
+}
+
+// Messaging system
+model MessageThread {
+  id          String    @id @default(uuid())
+  name        String?
+  projectId   String?   @unique
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  isGroup     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  // Relationships
+  messages    Message[]
+  participants MessageThreadParticipant[]
+}
+
+model MessageThreadParticipant {
+  id            String        @id @default(uuid())
+  threadId      String
+  thread        MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt      DateTime      @default(now())
+  lastReadAt    DateTime?
+
+  @@unique([threadId, userId])
+}
+
+model Message {
+  id          String        @id @default(uuid())
+  threadId    String
+  thread      MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId    String
+  sender      User          @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId  String?
+  receiver    User?         @relation("MessageReceiver", fields: [receiverId], references: [id], onDelete: SetNull)
+  content     String        @db.Text
+  attachment  String?       // URL to attachment if any
+  readAt      DateTime?
+  sentAt      DateTime      @default(now())
+}
+
+// File storage
+model File {
+  id          String    @id @default(uuid())
+  name        String
+  path        String    // S3 or storage path
+  type        String    // MIME type
+  size        Int       // Size in bytes
+  description String?
+  uploaderId  String
+  uploader    User      @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  sessionId   String?
+  session     Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  isPublic    Boolean   @default(false)
+  uploadedAt  DateTime  @default(now())
+}
+
+// Review and rating system
+model Review {
+  id          String    @id @default(uuid())
+  giverId     String
+  giver       User      @relation("ReviewGiver", fields: [giverId], references: [id], onDelete: Cascade)
+  receiverId  String
+  receiver    User      @relation("ReviewReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  rating      Int       // 1-5 star rating
+  content     String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([giverId, receiverId])
+}
